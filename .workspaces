@@ -1,0 +1,16 @@
+# wt config (YAML) — stored at .workspaces (no extension)
+# root: ../<repo>-worktrees   # uncomment to override default location
+post_create: ""               # e.g., "npm ci"
+
+rules:
+  # Share your .env file across all worktrees (if present in repo root)
+  - action: symlink
+    src: .env
+    dest: .env
+    opts: [optional, if-missing]
+
+  # Share node_modules across all worktrees (use with care)
+  - action: symlink
+    src: node_modules
+    dest: node_modules
+    opts: [optional, mkdirs, if-missing]
