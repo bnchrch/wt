@@ -6,17 +6,11 @@
 #   wt remove [--yes] <branch>      # confirmation (skippable with --yes)
 #   wt prune --all [--yes]          # prompts per stale dir (skippable with --yes)
 #   wt list
+#   wt root                         # cd back to repo root
 #   wt help
 #
 # Requires: git, yq
 # Config file (optional): <repo>/.workspaces   (YAML; no extension)
-#   root: ../my-repo-worktrees
-#   post_create: npm ci
-#   rules:
-#     - action: copy|symlink
-#       src:  path/relative/to/repo
-#       dest: path/relative/to/worktree
-#       opts: [if-missing, mkdirs, force, optional]
 
 # -------- small utils (stay polite in user shells) --------------------------
 _wt_log() { printf '[wt] %s\n' "$*" >&2; }
@@ -26,7 +20,7 @@ _wt_need() { command -v "$1" >/dev/null 2>&1 || { _wt_die "Missing dependency: $
 # -------- repo helpers -------------------------------------------------------
 _wt_git_root() { git rev-parse --show-toplevel 2>/dev/null; }
 _wt_repo_name() { basename "$(_wt_git_root)"; }
-_wt_cfg_path() { printf '%s/.workspaces' "$(_wt_git_root)"; }     # <— renamed
+_wt_cfg_path() { printf '%s/.workspaces' "$(_wt_git_root)"; }
 _wt_have_cfg() { [[ -f "$(_wt_cfg_path)" ]]; }
 _wt_sanitize_branch() { printf '%s' "${1//\//-}"; }               # feature/x -> feature-x
 _wt_default_root() { printf '%s/%s-worktrees' "$(cd "$(_wt_git_root)/.."; pwd)" "$(_wt_repo_name)"; }
@@ -101,7 +95,7 @@ _wt_symlink_item_abs() { # abs_src_target abs_dst csv_opts
 # -------- worktree plumbing --------------------------------------------------
 _wt_branch_exists_local() { git show-ref --verify --quiet "refs/heads/$1"; }
 _wt_worktrees_root() { local r; r="$(_wt_cfg_root_abs)" || return 1; printf '%s' "$r"; }
-_wt_worktree_dir_for() { printf '%s/%s' "$(_wt_worktrees_root)" "$(_wt_sanitize_branch "$1")"; }
+_wt_worktree_dir_for() { printf '%s/%s' "$( _wt_worktrees_root )" "$(_wt_sanitize_branch "$1")"; }
 _wt_ensure_root_dir() { mkdir -p "$(_wt_worktrees_root)"; }
 
 _wt_apply_rules_into() { # worktree_dir
@@ -165,7 +159,7 @@ _wt_switch_worktree() { # branch
     fi
   fi
 
-  _wt_apply_rules_into "$dir" || return 1
+  _t_apply_rules_into "$dir" 2>/dev/null || _wt_apply_rules_into "$dir" || return 1  # safety if you pasted over an older name
 
   local post; post="$(_wt_cfg_post_create || true)"
   if [[ -n "${post:-}" ]]; then ( cd "$dir" && _wt_log "post_create: $post" && eval "$post" ) || return 1; fi
@@ -181,19 +175,28 @@ _wt_list() {
   '
 }
 
-# -------- confirmation + delete helpers -------------------------------------
+# -------- confirmation + delete helpers (portable prompts) -------------------
 # Honors --yes flag (per-command) and env WT_YES=1
+_wt_prompt_yes_no() { # $1=prompt text -> returns 0=yes,1=no
+  local reply
+  { printf '%s' "$1" >/dev/tty 2>/dev/null || printf '%s' "$1" >&2; } 
+  # read from the user's terminal even if stdin is piped
+  IFS= read -r reply </dev/tty || reply=""
+  case "$reply" in
+    [yY]|[yY][eE][sS]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 _wt_should_delete() { # $1=human_label $2=path
   local label="$1" path="$2"
   if [[ "${_WT_YES:-}" = "1" || "${WT_YES:-}" = "1" ]]; then
     return 0
   fi
-  printf '[wt] About to delete %s\n[wt] Path: %s\n' "$label" "$path" >&2
-  read -r -p "Proceed? [y/N] " reply
-  case "$reply" in
-    [yY]|[yY][eE][sS]) return 0 ;;
-    *) _wt_log "Aborted."; return 1 ;;
-  esac
+  { printf '[wt] About to delete %s\n[wt] Path: %s\n' "$label" "$path" >/dev/tty 2>/dev/null || \
+    printf '[wt] About to delete %s\n[wt] Path: %s\n' "$label" "$path" >&2; }
+  _wt_prompt_yes_no "Proceed? [y/N] " || { _wt_log "Aborted."; return 1; }
+  return 0
 }
 
 _wt_delete_dir() { # $1=dir (rm -rf)
@@ -226,17 +229,17 @@ _wt_prune_all() { # [--yes]
   local tmp; tmp="$(mktemp)"
   git worktree list --porcelain | awk '$1=="worktree"{print $2}' >"$tmp"
 
-  local d
-  shopt -s nullglob
-  for d in "$root"/*; do
-    [[ -d "$d" ]] || continue
-    if ! grep -qx -- "$d" "$tmp"; then
+  # Portable directory iteration: find (no shopt/nullglob)
+  find "$root" -mindepth 1 -maxdepth 1 -type d -print0 | \
+  while IFS= read -r -d '' d; do
+    if ! grep -Fxq -- "$d" "$tmp"; then
       _WT_YES="$yes"
       _wt_should_delete "unregistered directory" "$d" || { _wt_log "Skipped: $d"; continue; }
       _wt_log "Deleting unregistered directory: $d"
       _wt_delete_dir "$d"
     fi
   done
+
   rm -f "$tmp"
   git worktree prune
 }
@@ -252,7 +255,6 @@ _wt_init() { # [--force]
     return 1
   fi
 
-  local repo; repo="$(_wt_git_root)" || return 1
   cat > "$cfg" <<'YAML'
 # wt config (YAML) — stored at .workspaces (no extension)
 # root: ../<repo>-worktrees   # uncomment to override default location
@@ -276,6 +278,14 @@ YAML
   _wt_log "Edit 'post_create' or add more rules as needed."
 }
 
+# -------- root: cd back to main repo ---------------------------------------
+_wt_root() {
+  local repo
+  repo="$(_wt_git_root)" || return 1
+  cd "$repo" || return 1
+  pwd
+}
+
 _wt_usage() {
   cat <<'EOF'
 Usage:
@@ -285,7 +295,12 @@ Usage:
   wt remove [--yes] <branch>      Remove the worktree for branch (with confirmation)
   wt prune --all [--yes]          Prompt to delete each unregistered ROOT/* dir; then git worktree prune
   wt list                         List registered worktrees
+  wt root                         Cd back to the main repo root
   wt help                         Show this help
+
+Flags:
+  --yes       Skip confirmation prompts for destructive ops (remove, prune)
+  --force     Overwrite existing .workspaces in 'wt init'
 
 Config (.workspaces in repo root, YAML; optional):
   root: ../<repo>-worktrees
@@ -295,12 +310,6 @@ Config (.workspaces in repo root, YAML; optional):
       src:  RELATIVE/TO/REPO
       dest: RELATIVE/TO/WORKTREE
       opts: [if-missing, mkdirs, force, optional]
-
-Flags:
-  --yes       Skip confirmation prompts for destructive ops (remove, prune)
-  --force     Overwrite existing .workspaces in 'wt init'
-Env:
-  WT_YES=1    Global non-interactive mode (same as providing --yes)
 EOF
 }
 
@@ -317,6 +326,7 @@ wt() {
     prune)   if [[ "${1:-}" != "--all" ]]; then _wt_usage; return 1; fi
              shift; _wt_prune_all "${1:-}" ;;
     list)    _wt_list ;;
+    root)    _wt_root ;;
     help|-h|--help|"") _wt_usage ;;
     *)       _wt_die "Unknown command: $cmd (see: wt help)"; return 1 ;;
   esac
