@@ -286,8 +286,7 @@ YAML
 
 # -------- root: cd back to main repo ---------------------------------------
 _wt_root() {
-  local repo
-  repo="$(_wt_git_root)" || return 1
+  local repo; repo="$(_wt_git_root)" || return 1
   cd "$repo" || return 1
   pwd
 }
