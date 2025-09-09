@@ -33,7 +33,7 @@ It provides commands to create, switch, list, and clean up worktrees, while also
 1. Save the script somewhere, e.g.:
 
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/your-org/wt/main/wt.plugin.sh -o ~/.wt.plugin.sh
+   curl -fsSL https://raw.githubusercontent.com/bnchrch/wt/main/wt.plugin.sh -o ~/.wt.plugin.sh
    ```
 
 2. Source it in your shell config (`~/.bashrc` or `~/.zshrc`):
