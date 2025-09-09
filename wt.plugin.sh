@@ -1,14 +1,15 @@
 # wt (shell plugin) — Git worktree helper with YAML config
 # Commands:
+#   wt init                         # create a starter .workspaces in repo root
 #   wt new <branch> [<base-ref>]
-#   wt switch <branch>                 # creates if needed, checks out, cd's into it
-#   wt remove [--yes] <branch>         # confirmation (skippable with --yes)
-#   wt prune --all [--yes]             # prompts per stale dir (skippable with --yes)
+#   wt switch <branch>              # creates if needed, checks out, cd's into it
+#   wt remove [--yes] <branch>      # confirmation (skippable with --yes)
+#   wt prune --all [--yes]          # prompts per stale dir (skippable with --yes)
 #   wt list
 #   wt help
 #
 # Requires: git, yq
-# Config file (optional): <repo>/.worktrees.yml
+# Config file (optional): <repo>/.workspaces   (YAML; no extension)
 #   root: ../my-repo-worktrees
 #   post_create: npm ci
 #   rules:
@@ -25,9 +26,9 @@ _wt_need() { command -v "$1" >/dev/null 2>&1 || { _wt_die "Missing dependency: $
 # -------- repo helpers -------------------------------------------------------
 _wt_git_root() { git rev-parse --show-toplevel 2>/dev/null; }
 _wt_repo_name() { basename "$(_wt_git_root)"; }
-_wt_cfg_path() { printf '%s/.worktrees.yml' "$(_wt_git_root)"; }
+_wt_cfg_path() { printf '%s/.workspaces' "$(_wt_git_root)"; }     # <— renamed
 _wt_have_cfg() { [[ -f "$(_wt_cfg_path)" ]]; }
-_wt_sanitize_branch() { printf '%s' "${1//\//-}"; }    # feature/x -> feature-x
+_wt_sanitize_branch() { printf '%s' "${1//\//-}"; }               # feature/x -> feature-x
 _wt_default_root() { printf '%s/%s-worktrees' "$(cd "$(_wt_git_root)/.."; pwd)" "$(_wt_repo_name)"; }
 
 # -------- YAML accessors (yq) -----------------------------------------------
@@ -113,7 +114,7 @@ _wt_apply_rules_into() { # worktree_dir
     case "$action" in
       copy)    _wt_copy_item        "$abs_src" "$wt/$dest_rel" "$opts" || return 1 ;;
       symlink) _wt_symlink_item_abs "$abs_src" "$wt/$dest_rel" "$opts" || return 1 ;;
-      *)       _wt_die "Unknown action in .worktrees.yml: $action"; return 1 ;;
+      *)       _wt_die "Unknown action in .workspaces: $action"; return 1 ;;
     esac
   done
 }
@@ -121,7 +122,6 @@ _wt_apply_rules_into() { # worktree_dir
 _wt_create_worktree() { # branch [base]
   _wt_need git || return 1; _wt_need yq || return 1
   local branch="$1" base="${2:-}" dir
-  local root; root="$(_wt_worktrees_root)" || return 1
   _wt_ensure_root_dir
   dir="$(_wt_worktree_dir_for "$branch")"
   [[ -e "$dir" ]] && { _wt_die "Worktree path already exists: $dir"; return 1; }
@@ -241,17 +241,53 @@ _wt_prune_all() { # [--yes]
   git worktree prune
 }
 
+# -------- init: create starter .workspaces ----------------------------------
+_wt_init() { # [--force]
+  _wt_need git || return 1; _wt_need yq || return 1
+  local cfg; cfg="$(_wt_cfg_path)" || return 1
+  local force=0
+  if [[ "${1:-}" == "--force" ]]; then force=1; shift; fi
+  if [[ -f "$cfg" && $force -ne 1 ]]; then
+    _wt_die "Config already exists: $cfg (use 'wt init --force' to overwrite)"
+    return 1
+  fi
+
+  local repo; repo="$(_wt_git_root)" || return 1
+  cat > "$cfg" <<'YAML'
+# wt config (YAML) — stored at .workspaces (no extension)
+# root: ../<repo>-worktrees   # uncomment to override default location
+post_create: ""               # e.g., "npm ci"
+
+rules:
+  # Share your .env file across all worktrees (if present in repo root)
+  - action: symlink
+    src: .env
+    dest: .env
+    opts: [optional, if-missing]
+
+  # Share node_modules across all worktrees (use with care)
+  - action: symlink
+    src: node_modules
+    dest: node_modules
+    opts: [optional, mkdirs, if-missing]
+YAML
+
+  _wt_log "Wrote starter config: $cfg"
+  _wt_log "Edit 'post_create' or add more rules as needed."
+}
+
 _wt_usage() {
   cat <<'EOF'
 Usage:
-  wt new <branch> [<base-ref>]     Create a new worktree and apply .worktrees.yml rules
-  wt switch <branch>               Create if needed, checkout, apply rules, cd into it
-  wt remove [--yes] <branch>       Remove the worktree for branch (with confirmation)
-  wt prune --all [--yes]           Prompt to delete each unregistered ROOT/* dir; then git worktree prune
-  wt list                          List registered worktrees
-  wt help                          Show this help
+  wt init [--force]               Create a starter .workspaces config (symlink .env & node_modules)
+  wt new <branch> [<base-ref>]    Create a new worktree and apply .workspaces rules
+  wt switch <branch>              Create if needed, checkout, apply rules, cd into it
+  wt remove [--yes] <branch>      Remove the worktree for branch (with confirmation)
+  wt prune --all [--yes]          Prompt to delete each unregistered ROOT/* dir; then git worktree prune
+  wt list                         List registered worktrees
+  wt help                         Show this help
 
-Config (.worktrees.yml in repo root, optional):
+Config (.workspaces in repo root, YAML; optional):
   root: ../<repo>-worktrees
   post_create: npm ci
   rules:
@@ -261,36 +297,27 @@ Config (.worktrees.yml in repo root, optional):
       opts: [if-missing, mkdirs, force, optional]
 
 Flags:
-  --yes     Skip confirmation prompts for destructive ops (remove, prune)
+  --yes       Skip confirmation prompts for destructive ops (remove, prune)
+  --force     Overwrite existing .workspaces in 'wt init'
 Env:
-  WT_YES=1  Global non-interactive mode (same as providing --yes)
+  WT_YES=1    Global non-interactive mode (same as providing --yes)
 EOF
 }
 
 # -------- user-facing dispatcher -------------------------------------------
 wt() {
-  local cmd="$1"; shift || true
+  local cmd="${1:-}"; shift || true
   case "$cmd" in
-    new)
-      [[ $# -ge 1 ]] || { _wt_usage; return 1; }
-      _wt_create_worktree "$1" "${2:-}"
-      ;;
-    switch)
-      [[ $# -eq 1 ]] || { _wt_usage; return 1; }
-      _wt_switch_worktree "$1"
-      ;;
-    remove)
-      # allow: wt remove [--yes] <branch>
-      if [[ "${1:-}" == "--yes" ]]; then _wt_remove "$@"; else _wt_remove "$@"; fi
-      ;;
-    prune)
-      # allow: wt prune --all [--yes]
-      if [[ "${1:-}" != "--all" ]]; then _wt_usage; return 1; fi
-      shift
-      _wt_prune_all "${1:-}"
-      ;;
-    list) _wt_list ;;
+    init)    _wt_init "${1:-}" ;;
+    new)     [[ $# -ge 1 ]] || { _wt_usage; return 1; }
+             _wt_create_worktree "$1" "${2:-}" ;;
+    switch)  [[ $# -eq 1 ]] || { _wt_usage; return 1; }
+             _wt_switch_worktree "$1" ;;
+    remove)  _wt_remove "$@" ;;
+    prune)   if [[ "${1:-}" != "--all" ]]; then _wt_usage; return 1; fi
+             shift; _wt_prune_all "${1:-}" ;;
+    list)    _wt_list ;;
     help|-h|--help|"") _wt_usage ;;
-    *) _wt_die "Unknown command: $cmd (see: wt help)"; return 1 ;;
+    *)       _wt_die "Unknown command: $cmd (see: wt help)"; return 1 ;;
   esac
 }
