@@ -18,7 +18,13 @@ _wt_die() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 _wt_need() { command -v "$1" >/dev/null 2>&1 || { _wt_die "Missing dependency: $1"; return 1; }; }
 
 # -------- repo helpers -------------------------------------------------------
-_wt_git_root() { git rev-parse --show-toplevel 2>/dev/null; }
+_wt_git_root() {
+  local common
+  common="$(git rev-parse --git-common-dir 2>/dev/null)" || return 1
+  # Resolve to absolute, then go up to the working tree root that owns the common .git
+  common="$(cd "$common" 2>/dev/null && pwd)" || return 1
+  cd "$common/.." 2>/dev/null && pwd
+}
 _wt_repo_name() { basename "$(_wt_git_root)"; }
 _wt_cfg_path() { printf '%s/.workspaces' "$(_wt_git_root)"; }
 _wt_have_cfg() { [[ -f "$(_wt_cfg_path)" ]]; }
