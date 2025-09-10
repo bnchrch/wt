@@ -11,11 +11,11 @@ It provides commands to create, switch, list, and clean up worktrees, while also
 - **Per-branch worktree directories**  
   Branch `feature/foo` gets a directory like `../my-repo-worktrees/feature-foo`.
 
-- **Configurable manifest (`.workspaces`)**  
+- **Configurable manifest (`.worktrees`)**  
   Define which files/folders should be copied or symlinked into each worktree.
 
 - **`wt init` bootstrap**  
-  Quickly create a `.workspaces` file with sensible defaults (symlinks `.env` and `node_modules`).
+  Quickly create a `.worktrees` file with sensible defaults (symlinks `.env` and `node_modules`).
 
 - **Post-create hooks**  
   Run arbitrary commands (e.g., install dependencies) automatically after creating or switching worktrees.
@@ -57,7 +57,7 @@ Requirements:
 ## ⚡ Usage
 
 ```bash
-wt init [--force]               # Create a starter .workspaces config
+wt init [--force]               # Create a starter .worktrees config
 wt new <branch> [<base-ref>]    # Create a new worktree and apply rules
 wt switch <branch>              # Create if needed, checkout, apply rules, cd into it
 wt remove [--yes] <branch>      # Remove the worktree for branch (asks to confirm)
@@ -95,7 +95,7 @@ wt prune --all --yes
 
 ## ⚙️ Configuration
 
-Put a `.workspaces` file in the root of your repo (YAML format).
+Put a `.worktrees` file in the root of your repo (YAML format).
 
 ### Example
 
@@ -141,7 +141,7 @@ rules:
 
 - `--yes` — skips confirmation prompts for `wt remove` and `wt prune --all`
 - `WT_YES=1` — environment variable equivalent (useful in CI)
-- `--force` — overwrite existing `.workspaces` when running `wt init`
+- `--force` — overwrite existing `.worktrees` when running `wt init`
 
 ---
 

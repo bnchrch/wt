@@ -1,6 +1,6 @@
 # wt (shell plugin) — Git worktree helper with YAML config
 # Commands:
-#   wt init                         # create a starter .workspaces in repo root
+#   wt init                         # create a starter .worktrees in repo root
 #   wt new <branch> [<base-ref>]
 #   wt switch <branch>              # creates if needed, checks out, cd's into it
 #   wt remove [--yes] <branch>      # confirmation (skippable with --yes)
@@ -10,7 +10,7 @@
 #   wt help
 #
 # Requires: git, yq
-# Config file (optional): <repo>/.workspaces   (YAML; no extension)
+# Config file (optional): <repo>/.worktrees   (YAML; no extension)
 
 # -------- small utils (stay polite in user shells) --------------------------
 _wt_log() { printf '[wt] %s\n' "$*" >&2; }
@@ -26,7 +26,7 @@ _wt_git_root() {
   cd "$common/.." 2>/dev/null && pwd
 }
 _wt_repo_name() { basename "$(_wt_git_root)"; }
-_wt_cfg_path() { printf '%s/.workspaces' "$(_wt_git_root)"; }
+_wt_cfg_path() { printf '%s/.worktrees' "$(_wt_git_root)"; }
 _wt_have_cfg() { [[ -f "$(_wt_cfg_path)" ]]; }
 _wt_sanitize_branch() { printf '%s' "${1//\//-}"; }               # feature/x -> feature-x
 _wt_default_root() { printf '%s/%s-worktrees' "$(cd "$(_wt_git_root)/.."; pwd)" "$(_wt_repo_name)"; }
@@ -114,7 +114,7 @@ _wt_apply_rules_into() { # worktree_dir
     case "$action" in
       copy)    _wt_copy_item        "$abs_src" "$wt/$dest_rel" "$opts" || return 1 ;;
       symlink) _wt_symlink_item_abs "$abs_src" "$wt/$dest_rel" "$opts" || return 1 ;;
-      *)       _wt_die "Unknown action in .workspaces: $action"; return 1 ;;
+      *)       _wt_die "Unknown action in .worktrees: $action"; return 1 ;;
     esac
   done
 }
@@ -250,7 +250,7 @@ _wt_prune_all() { # [--yes]
   git worktree prune
 }
 
-# -------- init: create starter .workspaces ----------------------------------
+# -------- init: create starter .worktrees ----------------------------------
 _wt_init() { # [--force]
   _wt_need git || return 1; _wt_need yq || return 1
   local cfg; cfg="$(_wt_cfg_path)" || return 1
@@ -262,7 +262,7 @@ _wt_init() { # [--force]
   fi
 
   cat > "$cfg" <<'YAML'
-# wt config (YAML) — stored at .workspaces (no extension)
+# wt config (YAML) — stored at .worktrees (no extension)
 # root: ../<repo>-worktrees   # uncomment to override default location
 post_create: ""               # e.g., "npm ci"
 
@@ -294,8 +294,8 @@ _wt_root() {
 _wt_usage() {
   cat <<'EOF'
 Usage:
-  wt init [--force]               Create a starter .workspaces config (symlink .env & node_modules)
-  wt new <branch> [<base-ref>]    Create a new worktree and apply .workspaces rules
+  wt init [--force]               Create a starter .worktrees config (symlink .env & node_modules)
+  wt new <branch> [<base-ref>]    Create a new worktree and apply .worktrees rules
   wt switch <branch>              Create if needed, checkout, apply rules, cd into it
   wt remove [--yes] <branch>      Remove the worktree for branch (with confirmation)
   wt prune --all [--yes]          Prompt to delete each unregistered ROOT/* dir; then git worktree prune
@@ -305,9 +305,9 @@ Usage:
 
 Flags:
   --yes       Skip confirmation prompts for destructive ops (remove, prune)
-  --force     Overwrite existing .workspaces in 'wt init'
+  --force     Overwrite existing .worktrees in 'wt init'
 
-Config (.workspaces in repo root, YAML; optional):
+Config (.worktrees in repo root, YAML; optional):
   root: ../<repo>-worktrees
   post_create: npm ci
   rules:

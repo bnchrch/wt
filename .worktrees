@@ -1,4 +1,4 @@
-# wt config (YAML) — stored at .workspaces (no extension)
+# wt config (YAML) — stored at .worktrees (no extension)
 # root: ../<repo>-worktrees   # uncomment to override default location
 post_create: ""               # e.g., "npm ci"
 
